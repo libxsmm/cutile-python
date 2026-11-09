@@ -7,10 +7,38 @@
 #include "cuda_tile/Bytecode/Reader/BytecodeReader.h"
 #include "cuda_tile/Dialect/CudaTile/IR/Attributes.h"
 #include "cuda_tile/Dialect/CudaTile/IR/Dialect.h"
+#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
+#include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
+#include "mlir/Conversion/IndexToLLVM/IndexToLLVM.h"
+#include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
+#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Conversion/TileIRToMLIR/Passes.h"
+#include "mlir/Conversion/UBToLLVM/UBToLLVM.h"
+#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
+#include "mlir/Dialect/Affine/IR/AffineDialect.h"
+#include "mlir/Dialect/Affine/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/InitAllDialects.h"
-#include "mlir/InitAllExtensions.h"
+#include "mlir/Dialect/Arith/IR/ValueBoundsOpInterfaceImpl.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
+#include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Index/IR/IndexDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/MemRef/IR/ValueBoundsOpInterfaceImpl.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/SCF/IR/ValueBoundsOpInterfaceImpl.h"
+#include "mlir/Dialect/Transform/IR/TransformDialect.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
+#include "mlir/Dialect/Vector/IR/ValueBoundsOpInterfaceImpl.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/Dialect/Vector/TransformOps/VectorTransformOps.h"
+#include "mlir/Dialect/X86/TransformOps/X86TransformOps.h"
+#include "mlir/Dialect/X86/Transforms.h"
+#include "mlir/Dialect/X86/X86Dialect.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
@@ -24,9 +52,31 @@ namespace cutile {
 
 static mlir::DialectRegistry createRegistry() {
   mlir::DialectRegistry registry;
-  mlir::registerAllDialects(registry);
-  mlir::registerAllExtensions(registry);
-  registry.insert<mlir::cuda_tile::CudaTileDialect>();
+  registry.insert<mlir::affine::AffineDialect, mlir::arith::ArithDialect,
+                  mlir::cf::ControlFlowDialect, mlir::func::FuncDialect,
+                  mlir::gpu::GPUDialect, mlir::index::IndexDialect,
+                  mlir::LLVM::LLVMDialect, mlir::math::MathDialect,
+                  mlir::memref::MemRefDialect, mlir::scf::SCFDialect,
+                  mlir::transform::TransformDialect, mlir::ub::UBDialect,
+                  mlir::vector::VectorDialect, mlir::x86::X86Dialect,
+                  mlir::cuda_tile::CudaTileDialect>();
+  mlir::func::registerInlinerExtension(registry);
+  mlir::vector::registerTransformDialectExtension(registry);
+  mlir::x86::registerTransformDialectExtension(registry);
+  mlir::affine::registerValueBoundsOpInterfaceExternalModels(registry);
+  mlir::arith::registerValueBoundsOpInterfaceExternalModels(registry);
+  mlir::memref::registerValueBoundsOpInterfaceExternalModels(registry);
+  mlir::scf::registerValueBoundsOpInterfaceExternalModels(registry);
+  mlir::vector::registerValueBoundsOpInterfaceExternalModels(registry);
+  mlir::arith::registerConvertArithToLLVMInterface(registry);
+  mlir::cf::registerConvertControlFlowToLLVMInterface(registry);
+  mlir::registerConvertFuncToLLVMInterface(registry);
+  mlir::index::registerConvertIndexToLLVMInterface(registry);
+  mlir::registerConvertMathToLLVMInterface(registry);
+  mlir::registerConvertMemRefToLLVMInterface(registry);
+  mlir::ub::registerConvertUBToLLVMInterface(registry);
+  mlir::vector::registerConvertVectorToLLVMInterface(registry);
+  mlir::registerConvertX86ToLLVMInterface(registry);
   mlir::registerBuiltinDialectTranslation(registry);
   mlir::registerLLVMDialectTranslation(registry);
   registerBackendTranslations(registry);

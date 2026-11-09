@@ -16,7 +16,16 @@ target_include_directories(_compiler SYSTEM PRIVATE
     "${LLVM_BINARY_DIR}/tools/mlir/include")
 target_link_libraries(_compiler PRIVATE
     TileIRToMLIR CudaTileBytecodeReader
-    MLIRParser MLIRTransforms MLIRRegisterAllDialects MLIRRegisterAllExtensions
+    MLIRParser MLIRTransforms
+    MLIRAffineDialect MLIRArithDialect MLIRControlFlowDialect MLIRFuncDialect
+    MLIRGPUDialect MLIRIndexDialect MLIRLLVMDialect MLIRMathDialect
+    MLIRMemRefDialect MLIRSCFDialect MLIRTransformDialect MLIRUBDialect
+    MLIRVectorDialect MLIRX86Dialect MLIRFuncInlinerExtension
+    MLIRArithValueBoundsOpInterfaceImpl
+    MLIRVectorTransformOps MLIRX86TransformOps
+    MLIRArithToLLVM MLIRControlFlowToLLVM MLIRFuncToLLVM MLIRIndexToLLVM
+    MLIRMathToLLVM MLIRMemRefToLLVM MLIRUBToLLVM MLIRVectorToLLVM
+    MLIRX86Transforms
     MLIRBuiltinToLLVMIRTranslation MLIRLLVMToLLVMIRTranslation
     MLIRVectorTransforms)
 target_sources(_compiler PRIVATE mlir/LowerVectorScan.cpp)

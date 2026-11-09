@@ -39,7 +39,13 @@ Configuration fetches pinned, SHA-256-verified archives of TileIRToMLIR and its
 CUDA Tile dependency, just like the XLA headers. No submodule setup is needed.
 
 The first build also builds LLVM/MLIR and TileIRToMLIR, so it takes longer than
-an incremental build. Later runs reuse `build/llvm`. Keep
+an incremental build. Only the native `_compiler` target and its transitive
+dependencies are built, including the required TableGen tools. Standalone tools
+such as `mlir-opt` and `tileir-to-mlir` are not built or needed. The compiler
+registers only the dialects and extensions used by its lowering pipelines and
+the packaged CPU transform schedule.
+
+Later runs reuse `build/llvm`. Keep
 `--no-build-isolation-package cuda-tile`: the persistent build trees refer to
 tools in this environment.
 
