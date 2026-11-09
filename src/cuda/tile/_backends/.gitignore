@@ -6,4 +6,3 @@
 # modules are covered by the repository-wide `*.so` rule.
 /_lib/
 /_licenses/
-!/cpu/cpu_schedule.mlir

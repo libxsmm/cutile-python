@@ -5,7 +5,6 @@
 import ctypes
 from concurrent.futures import ThreadPoolExecutor
 import importlib.util
-from importlib.resources import files
 import os
 from pathlib import Path
 import shutil
@@ -145,15 +144,8 @@ def test_signature_rejects_array_lists():
         build_signature(_scalar_and_array, ([np.zeros(4)], True, 1.0, 1))
 
 
-def test_backend_package_contains_lowering_schedule():
-    schedule = files(cpu).joinpath("cpu_schedule.mlir")
-    assert str(schedule) == cpu._TRANSFORM_SCHEDULE
-    for entry_point in ("__transform_nano", "__transform_nano_x86", "__transform_nano_amx"):
-        assert f"transform.named_sequence @{entry_point}(" in schedule.read_text()
-
-
 @pytest.mark.usefixtures("native_cpu")
-def test_native_compiler_selects_transform_entry_point():
+def test_native_compiler_selects_builtin_entry_point():
     if cpu.platform.machine() != "x86_64":
         assert cpu._transform_entry_point() == "__transform_nano"
     elif cpu._amx_enabled():
@@ -174,7 +166,7 @@ module {
 }
 """
     llvm_ir = native.lower_cpu_mlir(
-        source, cpu._TRANSFORM_SCHEDULE, "__transform_nano")
+        source, "__transform_nano")
     assert b"define i32 @identity" in llvm_ir
 
 
@@ -192,7 +184,7 @@ module {
 }
 """
     llvm_ir = native.lower_cpu_mlir(
-        source, cpu._TRANSFORM_SCHEDULE, "__transform_nano")
+        source, "__transform_nano")
     assert b"@scan" in llvm_ir
     assert b"vector.scan" not in llvm_ir
 
@@ -225,15 +217,10 @@ def test_compiler_identity_tracks_toolchain_cpu_and_compile_options(monkeypatch)
     monkeypatch.setattr(cpu, "_host_cpu", lambda: {"flags": "avx2 avx512f"})
     assert first != cpu.compiler_identity(cpu.Options(False))
     monkeypatch.setattr(cpu, "_host_cpu", lambda: {"flags": "avx2"})
-    # Whether AMX is enabled selects the schedule, so it is part of the identity.
+    # Whether AMX is enabled selects the pipeline, so it is part of the identity.
     monkeypatch.setattr(cpu, "_transform_entry_point", lambda: "__transform_nano_amx")
     assert first != cpu.compiler_identity(cpu.Options(False))
     monkeypatch.setattr(cpu, "_transform_entry_point", lambda: "__transform_nano_x86")
-    monkeypatch.setattr(
-        cpu, "file_fingerprint",
-        lambda path: (f"rebuilt:{path}" if path == cpu._TRANSFORM_SCHEDULE
-                      else f"fingerprint:{path}"))
-    assert first != cpu.compiler_identity(cpu.Options(False))
     monkeypatch.setattr(
         cpu, "file_fingerprint", lambda path: f"rebuilt:{path}")
     assert first != cpu.compiler_identity(cpu.Options(False))
@@ -256,10 +243,10 @@ def test_compile_calls_native_pipeline_and_cleans_temporary_files(monkeypatch):
     monkeypatch.setenv("CUTILE_CPU_DUMP_MLIR", "/dump.mlir")
     monkeypatch.setenv("MLIR_ENABLE_DUMP", "1")
 
-    def invoke(backend, method, bytecode, schedule_path, in_bounds, directory, dump,
+    def invoke(backend, method, bytecode, in_bounds, directory, dump,
                print_ir):
         observed.update(backend=backend, method=method, bytecode=bytecode,
-                        schedule_path=schedule_path, in_bounds=in_bounds,
+                        in_bounds=in_bounds,
                         directory=directory, dump=dump, print_ir=print_ir)
         assert Path(directory).is_dir()
         return b"shared object"
@@ -270,7 +257,6 @@ def test_compile_calls_native_pipeline_and_cleans_temporary_files(monkeypatch):
     assert observed["backend"] == "cpu"
     assert observed["method"] == "compile_cpu"
     assert observed["bytecode"] == b"bytecode"
-    assert observed["schedule_path"] == cpu._TRANSFORM_SCHEDULE
     assert observed["in_bounds"] and observed["print_ir"]
     assert observed["dump"] == "/dump.mlir"
     assert not Path(observed["directory"]).exists()
@@ -379,7 +365,7 @@ module {
 }
 """
     llvm_ir = cpu.native_compiler("cpu").lower_cpu_mlir(
-        source, cpu._TRANSFORM_SCHEDULE)
+        source)
     assert b"fmul float" in llvm_ir
     assert b"llvm.powi" not in llvm_ir
     assert b"define float @cube" in llvm_ir
@@ -412,7 +398,7 @@ module {
 }
 """
     llvm_ir = cpu.native_compiler("cpu").lower_cpu_mlir(
-        source, cpu._TRANSFORM_SCHEDULE)
+        source)
     assert b"unrealized_conversion_cast" not in llvm_ir
     assert b"phi x86_amx" in llvm_ir
     assert b"llvm.x86.tdpbf16ps.internal" in llvm_ir
@@ -748,7 +734,7 @@ def test_cpu_matmul_sample_emits_amx_bf16(monkeypatch, tmp_path, batched):
     def dumping_invoke(*args):
         dump = tmp_path / f"{len(dumps)}.mlir"
         dumps.append(dump)
-        return invoke(*args[:6], str(dump), *args[7:])
+        return invoke(*args[:5], str(dump), *args[6:])
 
     monkeypatch.setattr(cpu, "invoke", dumping_invoke)
     filename = "BatchMatMul-cpu.py" if batched else "MatMul-cpu.py"
@@ -770,11 +756,11 @@ def test_cpu_matmul_sample_emits_amx_bf16(monkeypatch, tmp_path, batched):
     native = cpu.native_compiler("cpu")
     source = dumps[0].read_bytes()
     amx_ir = native.lower_cpu_mlir(
-        source, cpu._TRANSFORM_SCHEDULE, "__transform_nano_amx")
+        source, "__transform_nano_amx")
     assert b"@llvm.x86.tdpbf16ps" in amx_ir
     for entry_point in ("__transform_nano_x86", "__transform_nano"):
         llvm_ir = native.lower_cpu_mlir(
-            source, cpu._TRANSFORM_SCHEDULE, entry_point)
+            source, entry_point)
         assert b"@llvm.x86.tdpbf16ps" not in llvm_ir
 
 
@@ -820,7 +806,7 @@ module {
 }
 """
     llvm_ir = cpu.native_compiler("cpu").lower_cpu_mlir(
-        source, cpu._TRANSFORM_SCHEDULE, "__transform_nano_amx")
+        source, "__transform_nano_amx")
     dot_products = [line for line in llvm_ir.splitlines()
                     if b"call " in line and b"@llvm.x86.tdpbf16ps" in line]
     assert len(dot_products) == 4
@@ -898,7 +884,7 @@ def test_existing_flat_cpu_abi_still_executes(monkeypatch, tmp_path):
     bytecode, signature = _custom.compile_bytecode(
         _vector_add, cpu, build_signature(_vector_add, args))
     binary = cpu.native_compiler("cpu").compile_cpu(
-        bytecode, cpu._TRANSFORM_SCHEDULE, False,
+        bytecode, False,
         str(tmp_path), "", False, False)
     path = tmp_path / "flat.so"
     path.write_bytes(binary)

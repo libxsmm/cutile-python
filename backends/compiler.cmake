@@ -19,10 +19,9 @@ target_link_libraries(_compiler PRIVATE
     MLIRParser MLIRTransforms
     MLIRAffineDialect MLIRArithDialect MLIRControlFlowDialect MLIRFuncDialect
     MLIRGPUDialect MLIRIndexDialect MLIRLLVMDialect MLIRMathDialect
-    MLIRMemRefDialect MLIRSCFDialect MLIRTransformDialect MLIRUBDialect
+    MLIRMemRefDialect MLIRSCFDialect MLIRUBDialect
     MLIRVectorDialect MLIRX86Dialect MLIRFuncInlinerExtension
     MLIRArithValueBoundsOpInterfaceImpl
-    MLIRVectorTransformOps MLIRX86TransformOps
     MLIRArithToLLVM MLIRControlFlowToLLVM MLIRFuncToLLVM MLIRIndexToLLVM
     MLIRMathToLLVM MLIRMemRefToLLVM MLIRUBToLLVM MLIRVectorToLLVM
     MLIRX86Transforms

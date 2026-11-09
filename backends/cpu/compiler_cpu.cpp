@@ -12,7 +12,6 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Math/Transforms/Passes.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
-#include "mlir/Dialect/Transform/Transforms/Passes.h"
 #include "mlir/Dialect/Vector/Transforms/Passes.h"
 #include "mlir/LowerVectorScan.h"
 #include "mlir/Pass/PassRegistry.h"
@@ -63,7 +62,6 @@ void registerBackendPasses() {
   mlir::math::registerMathPasses();
   mlir::memref::registerMemRefPasses();
   mlir::vector::registerVectorPasses();
-  mlir::transform::registerTransformPasses();
   if (llvm::InitializeNativeTarget() ||
       llvm::InitializeNativeTargetAsmPrinter())
     throw std::runtime_error(
@@ -83,19 +81,15 @@ static llvm::StringRef cpuTransformEntryPoint() {
 
 static std::unique_ptr<llvm::Module>
 lowerToLLVM(Compilation &compilation, mlir::ModuleOp module,
-            llvm::StringRef schedulePath, llvm::StringRef entryPoint,
-            llvm::LLVMContext &llvmContext) {
+            llvm::StringRef entryPoint, llvm::LLVMContext &llvmContext) {
   mlir::PassManager pm(&compilation.context);
 
-  mlir::transform::PreloadLibraryPassOptions preloadOptions;
-  preloadOptions.transformLibraryPaths.push_back(schedulePath.str());
-  pm.addPass(
-      mlir::transform::createPreloadLibraryPass(std::move(preloadOptions)));
-  mlir::transform::InterpreterPassOptions interpreterOptions;
-  interpreterOptions.entryPoint =
-      (entryPoint.empty() ? cpuTransformEntryPoint() : entryPoint).str();
-  pm.addPass(
-      mlir::transform::createInterpreterPass(std::move(interpreterOptions)));
+  entryPoint = entryPoint.empty() ? cpuTransformEntryPoint() : entryPoint;
+  if (entryPoint != "__transform_nano" &&
+      entryPoint != "__transform_nano_x86" &&
+      entryPoint != "__transform_nano_amx")
+    throw std::invalid_argument("unknown built-in CPU pipeline entry point");
+  pm.addPass(createPrepareCPUVectorsPass(entryPoint));
   pm.addPass(createLowerVectorScanPass());
   // Must run before vector lowering: LLVM scalarizes vector math intrinsics
   // into per-element libm calls.
@@ -227,8 +221,7 @@ static std::string linkObject(llvm::StringRef object,
   return (*binary)->getBuffer().str();
 }
 
-static std::string compileCPU(llvm::StringRef bytecode,
-                              llvm::StringRef schedulePath, bool assumeInBounds,
+static std::string compileCPU(llvm::StringRef bytecode, bool assumeInBounds,
                               llvm::StringRef directory,
                               llvm::StringRef dumpPath, bool printIR,
                               bool packArguments) {
@@ -251,8 +244,7 @@ static std::string compileCPU(llvm::StringRef bytecode,
   if (!dumpPath.empty())
     writeFile(dumpPath, printModule(*module));
   llvm::LLVMContext llvmContext;
-  auto llvmModule =
-      lowerToLLVM(compilation, *module, schedulePath, {}, llvmContext);
+  auto llvmModule = lowerToLLVM(compilation, *module, {}, llvmContext);
   auto triple = llvm::sys::getProcessTriple();
   std::string error;
   auto *target =
@@ -302,24 +294,22 @@ void bindBackend(nanobind::module_ &module) {
   using namespace nb::literals;
   module.def(
       "compile_cpu",
-      [](nb::bytes bytecode, const std::string &schedulePath,
-         bool assumeInBounds, const std::string &directory,
+      [](nb::bytes bytecode, bool assumeInBounds, const std::string &directory,
          const std::string &dumpPath, bool printIR, bool packArguments) {
         llvm::StringRef input(bytecode.c_str(), bytecode.size());
         std::string binary;
         {
           nb::gil_scoped_release release;
-          binary = compileCPU(input, schedulePath, assumeInBounds, directory,
-                              dumpPath, printIR, packArguments);
+          binary = compileCPU(input, assumeInBounds, directory, dumpPath,
+                              printIR, packArguments);
         }
         return nb::bytes(binary.data(), binary.size());
       },
-      "bytecode"_a, "schedule_path"_a, "assume_in_bounds"_a, "directory"_a,
-      "dump_path"_a = "", "print_ir"_a = false, "pack_arguments"_a = true);
+      "bytecode"_a, "assume_in_bounds"_a, "directory"_a, "dump_path"_a = "",
+      "print_ir"_a = false, "pack_arguments"_a = true);
   module.def(
       "lower_cpu_mlir",
-      [](nb::bytes source, const std::string &schedulePath,
-         const std::string &entryPoint) {
+      [](nb::bytes source, const std::string &entryPoint) {
         llvm::StringRef input(source.c_str(), source.size());
         std::string result;
         {
@@ -327,14 +317,14 @@ void bindBackend(nanobind::module_ &module) {
           Compilation compilation;
           auto module = compilation.readMLIR(input);
           llvm::LLVMContext llvmContext;
-          auto llvmModule = lowerToLLVM(compilation, *module, schedulePath,
-                                        entryPoint, llvmContext);
+          auto llvmModule =
+              lowerToLLVM(compilation, *module, entryPoint, llvmContext);
           llvm::raw_string_ostream stream(result);
           llvmModule->print(stream, nullptr);
         }
         return nb::bytes(result.data(), result.size());
       },
-      "source"_a, "schedule_path"_a, "entry_point"_a = "");
+      "source"_a, "entry_point"_a = "");
   module.def("cpu_transform_entry_point",
              [] { return cpuTransformEntryPoint().str(); });
 }

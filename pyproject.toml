@@ -72,7 +72,6 @@ include = [
 
 [tool.setuptools.package-data]
 "cuda.tile" = ["VERSION", "_cext.pyi"]
-"cuda.tile._backends.cpu" = ["*.mlir"]
 
 
 # Development environments of the non-CUDA variants, which build cuda-tile from

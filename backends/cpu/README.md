@@ -42,12 +42,16 @@ The first build also builds LLVM/MLIR and TileIRToMLIR, so it takes longer than
 an incremental build. Only the native `_compiler` target and its transitive
 dependencies are built, including the required TableGen tools. Standalone tools
 such as `mlir-opt` and `tileir-to-mlir` are not built or needed. The compiler
-registers only the dialects and extensions used by its lowering pipelines and
-the packaged CPU transform schedule.
+registers only the dialects and extensions used by its lowering pipelines.
 
 Later runs reuse `build/llvm`. Keep
 `--no-build-isolation-package cuda-tile`: the persistent build trees refer to
 tools in this environment.
+
+Vector preparation uses a built-in C++ pipeline that reuses upstream vector
+and x86 rewrite patterns. It selects generic, x86, or AMX preparation based on
+host capabilities, without a Transform interpreter or external schedule files.
+The LLVM optimizer, native code generator, and linker remain required.
 
 Running kernels does not require a compiler toolchain, LLVM executables,
 development files, or a source checkout. The target system must provide the

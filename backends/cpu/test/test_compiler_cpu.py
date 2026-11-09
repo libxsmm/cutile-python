@@ -67,14 +67,34 @@ def test_cpu_compiles_and_links_without_external_tools(native, bytecode, monkeyp
 
 def test_invalid_bytecode_does_not_poison_compiler(native, bytecode, tmp_path):
     with pytest.raises(ValueError, match="invalid TileIR"):
-        native.compile_cpu(b"invalid", cpu._TRANSFORM_SCHEDULE, False, str(tmp_path))
+        native.compile_cpu(b"invalid", False, str(tmp_path))
     data, signature = bytecode(_empty, (), cpu)
     assert cpu.compile(data, signature, cpu.Options(False)).startswith(b"\x7fELF")
 
 
 def test_native_mlir_errors_include_diagnostics(native):
     with pytest.raises(RuntimeError, match="parsing MLIR"):
-        native.lower_cpu_mlir(b"not MLIR", cpu._TRANSFORM_SCHEDULE)
+        native.lower_cpu_mlir(b"not MLIR")
+
+
+@pytest.mark.parametrize("entry_point", [
+    "__transform_nano", "__transform_nano_x86", "__transform_nano_amx"])
+def test_builtin_cpu_pipeline_lowers_vectors(native, entry_point):
+    source = b"""
+module {
+  func.func @identity(%value: vector<1x4xf32>) -> vector<1x4xf32> {
+    %result = arith.addf %value, %value : vector<1x4xf32>
+    return %result : vector<1x4xf32>
+  }
+}
+"""
+    direct = native.lower_cpu_mlir(source, entry_point)
+    assert b"@identity" in direct
+
+
+def test_builtin_cpu_pipeline_rejects_unknown_entry_point(native):
+    with pytest.raises(ValueError, match="unknown built-in CPU pipeline entry point"):
+        native.lower_cpu_mlir(b"module {}", "unknown")
 
 
 @ct.kernel
@@ -130,10 +150,9 @@ void *malloc(size_t size) {
 _PRELOADED_COMPILE = """\
 import sys, tempfile
 from cuda.tile._backends import _compiler
-from cuda.tile._backends import cpu
 with tempfile.TemporaryDirectory() as directory:
     sys.stdout.buffer.write(_compiler.compile_cpu(
-        sys.stdin.buffer.read(), cpu._TRANSFORM_SCHEDULE, False, directory))
+        sys.stdin.buffer.read(), False, directory))
 """
 
 
@@ -156,17 +175,11 @@ def test_cpu_links_system_libraries_despite_preloaded_allocator(native, bytecode
 
 
 @pytest.mark.parametrize("timeout", [None, 30])
-def test_native_errors_are_consistent_with_and_without_worker(
-        native, bytecode, monkeypatch, tmp_path, timeout):
+def test_native_errors_with_and_without_worker(native, monkeypatch, tmp_path, timeout):
     monkeypatch.setattr(default_tile_context.config, "compiler_timeout_sec", timeout)
     with pytest.raises(ValueError, match="invalid TileIR bytecode") as caught:
-        _native.invoke("cpu", "compile_cpu", b"invalid", cpu._TRANSFORM_SCHEDULE,
-                       False, str(tmp_path))
+        _native.invoke("cpu", "compile_cpu", b"invalid", False, str(tmp_path))
     assert "Traceback" not in str(caught.value)
-    data, _ = bytecode(_empty, (), cpu)
-    bad_schedule = tmp_path / "invalid-schedule.mlir"
-    bad_schedule.write_text("not MLIR")
-    with pytest.raises(RuntimeError, match="running the pass pipeline") as caught:
-        _native.invoke("cpu", "compile_cpu", data, str(bad_schedule),
-                       False, str(tmp_path))
+    with pytest.raises(RuntimeError, match="parsing MLIR") as caught:
+        _native.invoke("cpu", "lower_cpu_mlir", b"not MLIR")
     assert "Traceback" not in str(caught.value)

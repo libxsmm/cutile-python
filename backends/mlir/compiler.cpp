@@ -31,12 +31,9 @@
 #include "mlir/Dialect/MemRef/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/IR/ValueBoundsOpInterfaceImpl.h"
-#include "mlir/Dialect/Transform/IR/TransformDialect.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
-#include "mlir/Dialect/Vector/TransformOps/VectorTransformOps.h"
-#include "mlir/Dialect/X86/TransformOps/X86TransformOps.h"
 #include "mlir/Dialect/X86/Transforms.h"
 #include "mlir/Dialect/X86/X86Dialect.h"
 #include "mlir/Parser/Parser.h"
@@ -57,12 +54,9 @@ static mlir::DialectRegistry createRegistry() {
                   mlir::gpu::GPUDialect, mlir::index::IndexDialect,
                   mlir::LLVM::LLVMDialect, mlir::math::MathDialect,
                   mlir::memref::MemRefDialect, mlir::scf::SCFDialect,
-                  mlir::transform::TransformDialect, mlir::ub::UBDialect,
-                  mlir::vector::VectorDialect, mlir::x86::X86Dialect,
-                  mlir::cuda_tile::CudaTileDialect>();
+                  mlir::ub::UBDialect, mlir::vector::VectorDialect,
+                  mlir::x86::X86Dialect, mlir::cuda_tile::CudaTileDialect>();
   mlir::func::registerInlinerExtension(registry);
-  mlir::vector::registerTransformDialectExtension(registry);
-  mlir::x86::registerTransformDialectExtension(registry);
   mlir::affine::registerValueBoundsOpInterfaceExternalModels(registry);
   mlir::arith::registerValueBoundsOpInterfaceExternalModels(registry);
   mlir::memref::registerValueBoundsOpInterfaceExternalModels(registry);

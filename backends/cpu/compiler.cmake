@@ -6,7 +6,6 @@ target_sources(_compiler PRIVATE cpu/compiler_cpu.cpp cpu/ApproximateMath.cpp)
 target_include_directories(_compiler SYSTEM PRIVATE
     "${LLVM_MAIN_SRC_DIR}/../lld/include")
 target_link_libraries(_compiler PRIVATE
-    MLIRTransformDialectTransforms
     MLIRMemRefTransforms MLIRMathTransforms
     MLIRAffineToStandard MLIRVectorToSCF
     MLIRSCFToControlFlow MLIRVectorToLLVMPass

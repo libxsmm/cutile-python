@@ -15,14 +15,14 @@ Blocks use static OpenMP scheduling without a grid-sized coordinate array.
 One worker and single-block grids bypass parallel dispatch.
 The launcher uses the system GCC OpenMP runtime (libgomp.so.1), not a bundled copy.
 
-Before general lowering, cpu_schedule.mlir removes leading unit vector
+Before general lowering, a C++ pass removes leading unit vector
 dimensions, including on transfer operations, on any host. It selects x86
 contraction-loop preparation on x86-64, and AMX lowering only when
 AMX tile, BF16, and INT8 are available. Final LLVM conversion lowers AMX
 operations and loop-carried tile types together with control flow. On Linux
 x86-64, importing the launcher requests process-wide tile-data permission.
-If permission is denied, schedule selection uses the x86 path without AMX.
-After the schedule, math functions except sin and cos are replaced by
+If permission is denied, pipeline selection uses the x86 path without AMX.
+After vector preparation, math functions except sin and cos are replaced by
 polynomial approximations so they stay vectorized; LLVM would otherwise
 scalarize vector math intrinsics into per-element libm calls.
 
@@ -55,9 +55,6 @@ from .._util import synchronize_stream as synchronize
 
 name = "cpu"
 bytecode_version = BYTECODE_VERSION
-
-_TRANSFORM_SCHEDULE = os.path.join(os.path.dirname(__file__), "cpu_schedule.mlir")
-
 
 # Options of a ``backend_options`` block; ``num_cpu_threads`` only applies at launch.
 _OPTIONS = ("assume_in_bounds", "num_cpu_threads")
@@ -97,7 +94,7 @@ def _amx_enabled() -> bool:
 
 
 def _transform_entry_point() -> str:
-    """The native compiler's schedule entry point for this host."""
+    """The native compiler's built-in pipeline entry point for this host."""
     return native_compiler("cpu").cpu_transform_entry_point()
 
 
@@ -106,10 +103,9 @@ def compiler_identity(options: Options):
 
     try:
         identity = {
-            "schema": 6,
+            "schema": 7,
             "compiler": file_fingerprint(native_compiler("cpu").__file__),
             "cutile_cpu_backend": file_fingerprint(__file__),
-            "cutile_cpu_schedule": file_fingerprint(_TRANSFORM_SCHEDULE),
             "entry_point": _transform_entry_point(),
             "cpu": _host_cpu(),
             "platform": (platform.system(), platform.machine()),
@@ -126,7 +122,7 @@ def compile(bytecode: bytes, signature, options: Options) -> bytes:
     del signature
     with tempfile.TemporaryDirectory() as directory:
         return invoke(
-            "cpu", "compile_cpu", bytecode, _TRANSFORM_SCHEDULE,
+            "cpu", "compile_cpu", bytecode,
             options.assume_in_bounds, directory,
             os.environ.get("CUTILE_CPU_DUMP_MLIR", ""),
             os.environ.get("MLIR_ENABLE_DUMP") == "1")

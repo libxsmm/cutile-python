@@ -7,6 +7,10 @@
 
 #include <memory>
 
+namespace llvm {
+class StringRef;
+}
+
 namespace mlir {
 class Pass;
 }
@@ -15,4 +19,6 @@ namespace cutile {
 // Replaces math functions with vectorizable polynomial approximations, except
 // sin and cos, whose approximation is inaccurate for large arguments.
 std::unique_ptr<mlir::Pass> createApproximateMathPass();
+std::unique_ptr<mlir::Pass>
+createPrepareCPUVectorsPass(llvm::StringRef entryPoint);
 } // namespace cutile
