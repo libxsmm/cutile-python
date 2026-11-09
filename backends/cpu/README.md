@@ -3,27 +3,19 @@
 
 # CPU backend
 
-Use the CPU backend to run cuTile kernels on host arrays, without a GPU.
-It accepts NumPy-compatible arrays and CPU PyTorch tensors, along with scalars
-and constants. Grids can have one, two, or three dimensions.
-
-This is experimental: check correctness for your workload.
-Expect compile times to be high and and performance low.
-Few optimizations are implemented and those only for AMX and matmul.
-
-
-The [backend overview](../README.md) explains selection, caching, and limitations.
+Run cuTile kernels on Linux CPUs with NumPy-compatible arrays or CPU PyTorch
+tensors. Grids can have one, two, or three dimensions. The backend is
+experimental, so verify results for your workload; compile times can be long
+and performance depends on the kernel and host CPU.
 
 ## Prerequisites
 
 - Linux, Git, and [uv](https://docs.astral.sh/uv/getting-started/installation/).
-- GCC with OpenMP development headers and runtime.
-- Clang and LLD to build LLVM/MLIR. GCC builds cuTile's extensions; the `_cext`
-  extension does not build with Clang on Linux.
+- GCC with OpenMP development headers and runtime, plus Clang and LLD to build
+  LLVM/MLIR. GCC builds cuTile's extensions.
 
-No NVIDIA GPU, CUDA driver, or system CUDA Toolkit is required. The build
-dependency group supplies CUDA headers for cuTile's `_cext` extension, along with
-CMake, Ninja, and Python build packages.
+An NVIDIA GPU, CUDA driver, or system CUDA Toolkit is not required. The build
+dependencies provide the CUDA headers needed by the extension.
 
 ## Build and install
 
@@ -31,39 +23,21 @@ From the repository root:
 
 ```bash
 uv venv --python 3.12
-source .venv/bin/activate
+. .venv/bin/activate
 CUTILE_BUILD_VARIANT=cpu uv sync --group cpu --no-build-isolation-package cuda-tile
 ```
 
-Configuration fetches pinned, SHA-256-verified archives of TileIRToMLIR and its
-CUDA Tile dependency, just like the XLA headers. No submodule setup is needed.
-
-The first build also builds LLVM/MLIR and TileIRToMLIR, so it takes longer than
-an incremental build. Only the native `_compiler` target and its transitive
-dependencies are built, including the required TableGen tools. Standalone tools
-such as `mlir-opt` and `tileir-to-mlir` are not built or needed. The compiler
-registers only the dialects and extensions used by its lowering pipelines.
-
-Later runs reuse `build/llvm`. Keep
-`--no-build-isolation-package cuda-tile`: the persistent build trees refer to
-tools in this environment.
-
-Vector preparation uses a built-in C++ pipeline that reuses upstream vector
-and x86 rewrite patterns. It selects generic, x86, or AMX preparation based on
-host capabilities, without a Transform interpreter or external schedule files.
-The LLVM optimizer, native code generator, and linker remain required.
+The initial build compiles LLVM/MLIR and can take a while. Later builds reuse
+the build tree. Keep `--no-build-isolation-package cuda-tile` when syncing this
+environment.
 
 Running kernels does not require a compiler toolchain, LLVM executables,
 development files, or a source checkout. The target system must provide the
-C/C++ runtimes and GCC's OpenMP runtime, `libgomp.so.1`; these are not bundled.
-Install the OpenMP runtime if it is not already available:
+C/C++ runtimes and GCC's OpenMP runtime (`libgomp.so.1`), which are not bundled.
+On Debian or Ubuntu, install the runtime with:
 
 ```bash
-# Debian / Ubuntu
 sudo apt-get install libgomp1
-
-# Fedora / RHEL
-sudo dnf install libgomp
 ```
 
 ## Run a sample
@@ -79,7 +53,7 @@ script's `--help` for supported sizes, correctness checks, and thread settings.
 
 ## Use in a program
 
-Select the backend, keep arrays on the CPU, and pass `None` as the stream:
+Select the backend, pass CPU arrays, and use `None` as the stream:
 
 ```python
 import cuda.tile as ct
@@ -89,51 +63,37 @@ with ct.backend_options({"num_cpu_threads": 4}):
     ct.launch(None, grid, kernel, cpu_args)
 ```
 
-Here, `kernel` is your decorated cuTile kernel, `grid` is its block grid, and
-`cpu_args` contains its arguments. The call returns after all blocks finish.
-When porting a CUDA program, keep the kernel where supported, move its arrays to
-the CPU, and remove CUDA stream and device assumptions from the host code.
-`ct.set_backend(None)` explicitly restores the CUDA launch path.
+`kernel` is a decorated cuTile kernel, `grid` is its block grid, and `cpu_args`
+contains its arguments. Launches are synchronous. When porting a CUDA program,
+keep the kernel where supported, move its arrays to the CPU, and remove CUDA
+stream and device assumptions from the host code. `ct.set_backend(None)`
+restores the CUDA launch path.
 
-### Choose the thread count
+### Options
 
-`num_cpu_threads` controls how many OpenMP workers execute blocks. The default,
-`0`, uses OpenMP's maximum and honors `OMP_NUM_THREADS`. Changing it does not
-recompile the kernel.
+`num_cpu_threads` sets the number of OpenMP workers. The default, `0`, uses
+OpenMP's maximum and honors `OMP_NUM_THREADS`. Changing this option does not
+recompile kernels.
 
-Bounds checks are enabled by default. You can set `assume_in_bounds=True` in
-the same options block when you know every tile load and store is in bounds.
-Do not use it to work around an out-of-bounds access.
+Bounds checks are enabled by default. Set `assume_in_bounds=True` only when
+every tile load and store is in bounds.
 
-### Diagnose a problem
+## Troubleshooting
 
-Set `MLIR_ENABLE_DUMP` to dump-so-stdout all MLIR generated during compile.
+Set `MLIR_ENABLE_DUMP=1` to print generated MLIR during compilation, or set
+`CUTILE_CPU_DUMP_MLIR` to a file path to write the lowered MLIR.
 
-Set `CUTILE_CPU_DUMP_MLIR` to a file path to inspect the lowered MLIR.
-
-If importing the CPU launcher reports a missing `libgomp.so.1`, install the
-system OpenMP runtime as described above.
-
-If loading a compiled kernel fails, check that `TMPDIR` allows executable
-files: the backend loads kernels from temporary shared libraries.
+If the CPU launcher cannot find `libgomp.so.1`, install GCC's OpenMP runtime.
+If loading a compiled kernel fails, check that `TMPDIR` permits executable
+files; kernels are loaded from temporary shared libraries.
 
 ## Run tests
 
-From the repository root, install the test runner and plugins, then run the
-backend tests:
+From the repository root, install the test tools and run CPU backend tests:
 
 ```bash
 uv pip install pytest pytest-benchmark pytest-env
 python -m pytest backends/cpu
 ```
 
-Tests requiring a different native build variant are skipped.
-
-## Distribute a build
-
-Locally built wheels inherit the build host's architecture and glibc baseline.
-System C, C++, and OpenMP runtimes are not bundled. The target system's
-`libgomp.so.1` must support the OpenMP symbols used by the build.
-
-For compiler passes, argument packing, and host-specific lowering, see the
-[CPU entry module](../../src/cuda/tile/_backends/cpu/__init__.py).
+Tests requiring another native build variant are skipped.
