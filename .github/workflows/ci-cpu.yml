@@ -96,6 +96,16 @@ jobs:
           path: native-sdk
           key: ${{ steps.key.outputs.key }}
 
+      - name: Verify native SDK cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        # Save failures are only warnings; the wheel jobs need the entry.
+        uses: actions/cache/restore@v6
+        with:
+          path: native-sdk
+          key: ${{ steps.key.outputs.key }}
+          lookup-only: true
+          fail-on-cache-miss: true
+
   build:
     name: Build CPU Wheel (Python ${{ matrix.python-version }})
     needs: native-sdk
@@ -172,6 +182,11 @@ jobs:
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
           python -m pip install dist/*.whl numpy pytest pytest-benchmark pytest-env
           python -m pip install setuptools==84.0.0 'cmake>=3.24,<4' ninja
+
+      - name: Check native extensions keep the GIL disabled
+        if: endsWith(matrix.python-version, 't')
+        # CPython only warns when an extension re-enables the GIL.
+        run: python -c "import sys, cuda.tile._cext, cuda.tile._backends._compiler, cuda.tile._backends.cpu._cpu; assert not sys._is_gil_enabled(), 'GIL re-enabled'"
 
       - name: Run CPU backend tests
         run: python -m pytest --durations=10 --junitxml=test-results.xml -m "not benchmark" backends/cpu backends/test
