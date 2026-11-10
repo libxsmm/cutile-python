@@ -20,9 +20,9 @@ const XLA_FFI_TypeInfo* cutile_call_state_type_info() {
 
 #else  // !_WIN32
 
+#include "py.h"
 #include "xla/ffi/api/c_api.h"
 #include "xla_ffi.h"
-#include "py.h"
 #include "cuda_loader.h"
 #include "hash_map.h"
 #include "memory.h"
