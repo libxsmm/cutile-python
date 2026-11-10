@@ -3,6 +3,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+// Includes Python.h, which must precede all system headers.
+#include "mlir/compiler.h"
+
 #include "ApproximateMath.h"
 #include "amx.h"
 #include "lld/Common/Driver.h"
@@ -17,7 +20,6 @@
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Target/LLVMIR/Export.h"
 #include "mlir/Transforms/Passes.h"
-#include "mlir/compiler.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"

@@ -5,6 +5,10 @@
 
 #pragma once
 
+// nanobind includes Python.h, which must precede all system headers.
+#include <nanobind/nanobind.h>
+#include <nanobind/stl/string.h>
+
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/MLIRContext.h"
@@ -12,8 +16,6 @@
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
-#include <nanobind/nanobind.h>
-#include <nanobind/stl/string.h>
 #include <string>
 
 namespace cutile {
