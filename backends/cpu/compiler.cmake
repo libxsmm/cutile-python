@@ -3,8 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 target_sources(_compiler PRIVATE cpu/compiler_cpu.cpp cpu/ApproximateMath.cpp)
-target_include_directories(_compiler SYSTEM PRIVATE
-    "${LLVM_MAIN_SRC_DIR}/../lld/include")
+if(CUTILE_NATIVE_SDK_DIR)
+    target_include_directories(_compiler SYSTEM PRIVATE ${LLD_INCLUDE_DIRS})
+else()
+    target_include_directories(_compiler SYSTEM PRIVATE "${LLVM_MAIN_SRC_DIR}/../lld/include")
+endif()
 target_link_libraries(_compiler PRIVATE
     MLIRMemRefTransforms MLIRMathTransforms
     MLIRAffineToStandard MLIRVectorToSCF

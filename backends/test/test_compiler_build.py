@@ -187,3 +187,32 @@ endif()
 """)
     subprocess.run([cmake, "-P", str(script)], check=True,
                    capture_output=True, text=True, timeout=60)
+
+
+def test_native_sdk_configure_without_python_or_cuda(compiler_sources, tmp_path):
+    if any(shutil.which(tool) is None for tool in ("clang", "clang++", "ld.lld")):
+        pytest.skip("native SDK configuration requires Clang and LLD")
+    run, binary, _ = compiler_sources
+    run()
+    tileir, cuda_tile = (binary / "sources.txt").read_text().splitlines()
+    project = Path(__file__).resolve().parents[2]
+    output = tmp_path / "sdk-build"
+    prefix = tmp_path / "sdk-install"
+    subprocess.run([
+        shutil.which("cmake"), "-S", str(project), "-B", str(output),
+        "-DCUTILE_BUILD_VARIANT=cpu", "-DCUTILE_BUILD_NATIVE_SDK=ON",
+        "-DCMAKE_DISABLE_FIND_PACKAGE_Python=ON",
+        "-DCMAKE_DISABLE_FIND_PACKAGE_CUDAToolkit=ON",
+        f"-DCMAKE_INSTALL_PREFIX={prefix}",
+        f"-DCUTILE_LLVM_SOURCE_DIR={tmp_path / 'llvm-source'}",
+        f"-DCUTILE_LLVM_BINARY_DIR={tmp_path / 'llvm-build'}",
+        f"-DFETCHCONTENT_SOURCE_DIR_TILEIR_TO_MLIR={tileir}",
+        f"-DFETCHCONTENT_SOURCE_DIR_CUDA_TILE={cuda_tile}",
+    ], check=True, capture_output=True, text=True, timeout=60)
+    script = (output / "tileir-toolchain" / "BuildLLVM.cmake").read_text()
+    assert "set(_targets [==[install-distribution]==])" in script
+    assert "-DLLVM_EXTERNAL_PROJECTS:STRING=TileIRToMLIR;" in script
+    assert f"-DCMAKE_INSTALL_PREFIX:PATH={prefix}" in script
+    assert "-DPython_EXECUTABLE" not in script
+    assert "-Dnanobind_DIR" not in script
+    assert "-DLLVM_ENABLE_LIBEDIT:BOOL=OFF" in script

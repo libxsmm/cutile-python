@@ -12,7 +12,8 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Let main runs finish populating the native SDK cache.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -46,12 +47,67 @@ jobs:
       - name: Check inline samples are up to date
         run: python test/tools/inline_samples.py --check
 
-  build:
-    name: Build CPU Wheel (Python 3.12)
+  native-sdk:
+    name: Native SDK
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Compute native SDK cache key
+        id: key
+        # Bump v1 when the SDK build commands below change.
+        run: echo "key=cpu-native-sdk-v1-${ImageOS:?}-${RUNNER_ARCH}-${{ hashFiles('backends/cmake/**', 'backends/cpu/toolchain.cmake') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Look up native SDK cache
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: native-sdk
+          key: ${{ steps.key.outputs.key }}
+          lookup-only: true
+
+      - name: Set up Python
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build native SDK
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang lld g++
+          python -m pip install 'cmake>=3.24,<4' ninja
+          cmake -S . -B build/native-sdk -G Ninja \
+            -DCUTILE_BUILD_VARIANT=cpu \
+            -DCUTILE_BUILD_NATIVE_SDK=ON \
+            -DCMAKE_INSTALL_PREFIX="$PWD/native-sdk"
+          cmake --build build/native-sdk
+          cmake --install build/native-sdk --component cuTileNativeSDK
+
+      - name: Save native SDK cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: native-sdk
+          key: ${{ steps.key.outputs.key }}
+
+  build:
+    name: Build CPU Wheel (Python ${{ matrix.python-version }})
+    needs: native-sdk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: &python-versions ["3.11", "3.12", "3.13", "3.14", "3.14t", "3.15", "3.15t"]
     env:
       CUTILE_BUILD_VARIANT: cpu
+      CMAKE_ARGS: -DCUTILE_NATIVE_SDK_DIR=${{ github.workspace }}/native-sdk
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -59,12 +115,14 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
-      - name: Install native build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes clang lld g++
+      - name: Restore native SDK
+        uses: actions/cache/restore@v6
+        with:
+          path: native-sdk
+          key: ${{ needs.native-sdk.outputs.key }}
+          fail-on-cache-miss: true
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
@@ -72,7 +130,7 @@ jobs:
           enable-cache: true
 
       - name: Install CPU build dependencies
-        run: uv sync --group cpu --no-install-project
+        run: uv sync --group backend-build --no-install-project --python "$(command -v python)"
 
       - name: Build CPU wheel
         run: uv build --wheel --no-build-isolation --python .venv/bin/python
@@ -80,16 +138,20 @@ jobs:
       - name: Upload CPU wheel
         uses: actions/upload-artifact@v6
         with:
-          name: wheel-cpu-py3.12-linux-x86_64
+          name: wheel-cpu-py${{ matrix.python-version }}-linux-x86_64
           path: dist/*.whl
           if-no-files-found: error
           retention-days: 7
 
   test-cpu:
-    name: CPU Tests (Python 3.12)
+    name: CPU Tests (Python ${{ matrix.python-version }})
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: *python-versions
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -97,12 +159,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Download CPU wheel
         uses: actions/download-artifact@v7
         with:
-          name: wheel-cpu-py3.12-linux-x86_64
+          name: wheel-cpu-py${{ matrix.python-version }}-linux-x86_64
           path: dist/
 
       - name: Install test dependencies
@@ -118,6 +180,6 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
-          name: cpu-test-results
+          name: cpu-test-results-py${{ matrix.python-version }}
           path: test-results.xml
           retention-days: 7
