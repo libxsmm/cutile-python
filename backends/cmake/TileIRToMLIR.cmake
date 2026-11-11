@@ -68,12 +68,14 @@ file(CONFIGURE OUTPUT "${_required_llvm_revisions_file}"
 set(CUTILE_COMPILER_PATH "${CUTILE_LLVM_BINARY_DIR}/lib/${_compiler_name}")
 
 set(_cutile_checkout_script "${CMAKE_CURRENT_LIST_DIR}/CheckoutLLVM.cmake")
+set(_cutile_llvm_patch "${CMAKE_CURRENT_LIST_DIR}/llvm.patch")
 set(_cutile_checkout_command
     "${CMAKE_COMMAND}"
     "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
     "-DSOURCE_DIR=${CUTILE_LLVM_SOURCE_DIR}"
     "-DTILEIR_REQUIRED_LLVM_REVISION=${_tileir_required_llvm_revision}"
     "-DREVISION=${_cutile_llvm_override}"
+    "-DPATCH=${_cutile_llvm_patch}"
     -P "${_cutile_checkout_script}")
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/${CUTILE_BUILD_VARIANT}/toolchain.cmake")
@@ -162,7 +164,7 @@ ExternalProject_Add(cutile_llvm
     USES_TERMINAL_BUILD TRUE)
 
 ExternalProject_Add_StepDependencies(cutile_llvm download
-    "${_required_llvm_revisions_file}")
+    "${_required_llvm_revisions_file}" "${_cutile_llvm_patch}")
 
 if(_cutile_llvm_override)
     message(STATUS "LLVM revision override: ${_cutile_llvm_override}")
@@ -178,6 +180,7 @@ endif()
 
 unset(_cutile_checkout_command)
 unset(_cutile_checkout_script)
+unset(_cutile_llvm_patch)
 unset(_required_llvm_revisions_file)
 unset(_cutile_llvm_override)
 unset(_tileir_required_llvm_revision)

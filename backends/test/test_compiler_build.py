@@ -170,6 +170,53 @@ def test_missing_cache_triggers_reconfiguration(llvm_build):
         "cpu:mlir;lld", "cpu:mlir;lld"]
 
 
+def test_llvm_checkout_applies_and_reverts_patch(tmp_path):
+    cmake, git_executable = shutil.which("cmake"), shutil.which("git")
+    if cmake is None or git_executable is None:
+        pytest.skip("LLVM checkout tests require CMake and Git")
+    source = tmp_path / "llvm"
+    source.mkdir()
+    target = source / "x86.td"
+
+    def git(*args):
+        return subprocess.run([git_executable, "-C", str(source), *args], check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    def commit(text):
+        target.write_text(text)
+        git("add", target.name)
+        git("-c", "user.name=test", "-c", "user.email=test@example.com",
+            "-c", "commit.gpgsign=false", "commit", "-q", "-m", "update")
+        return git("rev-parse", "HEAD")
+
+    git("init", "-q")
+    pinned = commit("a\nb\nc\n")
+    newer = commit("a\nb\nc\nd\n")
+    fixed = commit("a\nB\nc\nd\n")
+    patch = tmp_path / "llvm.patch"
+    patch.write_text("Backport.\n\n"
+                     "diff --git a/x86.td b/x86.td\n--- a/x86.td\n+++ b/x86.td\n"
+                     "@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n")
+    script = Path(__file__).resolve().parents[1] / "cmake" / "CheckoutLLVM.cmake"
+
+    def checkout(revision="", patch_path=patch):
+        subprocess.run([cmake, f"-DGIT_EXECUTABLE={git_executable}", f"-DSOURCE_DIR={source}",
+                        f"-DTILEIR_REQUIRED_LLVM_REVISION={pinned}", f"-DREVISION={revision}",
+                        f"-DPATCH={patch_path}", "-P", str(script)],
+                       check=True, capture_output=True, text=True, timeout=60)
+        return git("rev-parse", "HEAD"), target.read_text()
+
+    assert checkout() == (pinned, "a\nB\nc\n")
+    assert checkout() == (pinned, "a\nB\nc\n")
+    # The patch must be reverted before checking out a revision that changes its files.
+    assert checkout(newer) == (newer, "a\nB\nc\nd\n")
+    assert checkout(fixed) == (fixed, "a\nB\nc\nd\n")
+    assert git("status", "--porcelain") == ""
+    assert checkout() == (pinned, "a\nB\nc\n")
+    assert checkout(patch_path="") == (pinned, "a\nb\nc\n")
+    assert git("status", "--porcelain") == ""
+
+
 def test_cpu_toolchain_settings(tmp_path):
     cmake = shutil.which("cmake")
     if cmake is None:
