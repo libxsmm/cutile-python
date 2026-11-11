@@ -6,6 +6,12 @@ cmake_minimum_required(VERSION 3.18)
 project(cuda-tile-python)
 enable_testing()
 
+option(CUTILE_BUILD_NATIVE_SDK "Build and install the Python-independent native SDK" OFF)
+if(CUTILE_BUILD_NATIVE_SDK)
+    add_subdirectory(backends)
+    return()
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
 if (MSVC)

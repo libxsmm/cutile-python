@@ -56,16 +56,57 @@ if(DEFINED REVISION AND NOT REVISION STREQUAL "")
     set(_selected_revision "${REVISION}")
 endif()
 
+set(_patch "")
+if(DEFINED PATCH AND NOT PATCH STREQUAL "")
+    file(READ "${PATCH}" _patch)
+endif()
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" -C "${SOURCE_DIR}" rev-parse --absolute-git-dir
+    OUTPUT_VARIABLE _git_dir
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    COMMAND_ERROR_IS_FATAL ANY)
+# Copy of the patch applied to the working tree, needed to revert it.
+set(_applied_patch "${_git_dir}/cutile-llvm.patch")
+set(_applied "")
+if(EXISTS "${_applied_patch}")
+    file(READ "${_applied_patch}" _applied)
+endif()
+
 execute_process(
     COMMAND "${GIT_EXECUTABLE}" -C "${SOURCE_DIR}" rev-parse HEAD
     RESULT_VARIABLE _head_result
     OUTPUT_VARIABLE _head_revision
     OUTPUT_STRIP_TRAILING_WHITESPACE
     ERROR_QUIET)
-if(_head_result EQUAL 0 AND _head_revision STREQUAL _selected_revision)
+if(_head_result EQUAL 0 AND _head_revision STREQUAL _selected_revision
+   AND _applied STREQUAL _patch)
     return()
 endif()
 
-execute_process(
-    COMMAND "${GIT_EXECUTABLE}" -C "${SOURCE_DIR}" checkout --detach "${_selected_revision}"
-    COMMAND_ERROR_IS_FATAL ANY)
+if(EXISTS "${_applied_patch}")
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C "${SOURCE_DIR}" apply --reverse "${_applied_patch}"
+        COMMAND_ERROR_IS_FATAL ANY)
+    file(REMOVE "${_applied_patch}")
+endif()
+
+if(NOT _head_revision STREQUAL _selected_revision)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C "${SOURCE_DIR}" checkout --detach "${_selected_revision}"
+        COMMAND_ERROR_IS_FATAL ANY)
+endif()
+
+if(NOT _patch STREQUAL "")
+    # Newer LLVM revisions may already contain the patch.
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C "${SOURCE_DIR}" apply --reverse --check "${PATCH}"
+        RESULT_VARIABLE _patch_present
+        OUTPUT_QUIET
+        ERROR_QUIET)
+    if(NOT _patch_present EQUAL 0)
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" -C "${SOURCE_DIR}" apply "${PATCH}"
+            COMMAND_ERROR_IS_FATAL ANY)
+        file(WRITE "${_applied_patch}" "${_patch}")
+    endif()
+endif()

@@ -4,12 +4,12 @@
 
 #pragma once
 
+#include <Python.h>
+
 #include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <utility>
-
-#include <Python.h>
 
 
 #define ENUM_ENTRY_AUTO(name, ...) name,

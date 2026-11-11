@@ -5,12 +5,14 @@
 set(CUTILE_TOOLCHAIN_DIR "" CACHE PATH
     "Existing native compiler installation for CUTILE_BUILD_VARIANT; skips building LLVM")
 
-execute_process(
-    COMMAND "${Python_EXECUTABLE}" -c
-            "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))"
-    OUTPUT_VARIABLE _compiler_suffix OUTPUT_STRIP_TRAILING_WHITESPACE
-    COMMAND_ERROR_IS_FATAL ANY)
-set(_compiler_name "_compiler${_compiler_suffix}")
+if(NOT CUTILE_BUILD_NATIVE_SDK)
+    execute_process(
+        COMMAND "${Python_EXECUTABLE}" -c
+                "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))"
+        OUTPUT_VARIABLE _compiler_suffix OUTPUT_STRIP_TRAILING_WHITESPACE
+        COMMAND_ERROR_IS_FATAL ANY)
+    set(_compiler_name "_compiler${_compiler_suffix}")
+endif()
 
 set(_tileir_to_mlir_dir "${CUTILE_TILEIR_TO_MLIR_DIR}")
 if(NOT EXISTS "${_tileir_to_mlir_dir}/CMakeLists.txt")
@@ -18,7 +20,7 @@ if(NOT EXISTS "${_tileir_to_mlir_dir}/CMakeLists.txt")
     "TileIRToMLIR sources are missing: ${_tileir_to_mlir_dir}")
 endif()
 
-if(CUTILE_TOOLCHAIN_DIR)
+if(CUTILE_TOOLCHAIN_DIR AND NOT CUTILE_BUILD_NATIVE_SDK)
     set(CUTILE_COMPILER_PATH "${CUTILE_TOOLCHAIN_DIR}/lib/${_compiler_name}")
     set(CUTILE_LLVM_LICENSE_PATH "${CUTILE_TOOLCHAIN_DIR}/share/cutile/llvm/LICENSE.TXT")
     foreach(_path IN ITEMS CUTILE_COMPILER_PATH CUTILE_LLVM_LICENSE_PATH)
@@ -66,17 +68,28 @@ file(CONFIGURE OUTPUT "${_required_llvm_revisions_file}"
 set(CUTILE_COMPILER_PATH "${CUTILE_LLVM_BINARY_DIR}/lib/${_compiler_name}")
 
 set(_cutile_checkout_script "${CMAKE_CURRENT_LIST_DIR}/CheckoutLLVM.cmake")
+set(_cutile_llvm_patch "${CMAKE_CURRENT_LIST_DIR}/llvm.patch")
 set(_cutile_checkout_command
     "${CMAKE_COMMAND}"
     "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
     "-DSOURCE_DIR=${CUTILE_LLVM_SOURCE_DIR}"
     "-DTILEIR_REQUIRED_LLVM_REVISION=${_tileir_required_llvm_revision}"
     "-DREVISION=${_cutile_llvm_override}"
+    "-DPATCH=${_cutile_llvm_patch}"
     -P "${_cutile_checkout_script}")
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/${CUTILE_BUILD_VARIANT}/toolchain.cmake")
 set(_cutile_llvm_build_targets _compiler)
 set(_cutile_llvm_byproducts "${CUTILE_COMPILER_PATH}")
+set(_cutile_external_projects "TileIRToMLIR|cuTileCompiler")
+if(CUTILE_BUILD_NATIVE_SDK)
+    set(_cutile_external_projects TileIRToMLIR)
+    set(_cutile_llvm_build_targets install-distribution)
+    set(_cutile_llvm_byproducts
+        "${CMAKE_INSTALL_PREFIX}/lib/cmake/TileIRToMLIR/TileIRToMLIRConfig.cmake")
+    install(FILES "${CUTILE_LLVM_LICENSE_PATH}"
+        DESTINATION share/cutile/llvm COMPONENT cuTileNativeSDK)
+endif()
 
 set(_cutile_llvm_cmake_args
     "-DCMAKE_BUILD_TYPE:STRING=${CUTILE_LLVM_BUILD_TYPE}"
@@ -84,7 +97,7 @@ set(_cutile_llvm_cmake_args
     "-DCMAKE_CXX_COMPILER:FILEPATH=${CUTILE_CLANGXX_EXECUTABLE}"
     "-DCMAKE_LINKER:FILEPATH=${CUTILE_LLD_EXECUTABLE}"
     "-DLLVM_ENABLE_PROJECTS:STRING=${_cutile_llvm_projects}"
-    "-DLLVM_EXTERNAL_PROJECTS:STRING=TileIRToMLIR|cuTileCompiler"
+    "-DLLVM_EXTERNAL_PROJECTS:STRING=${_cutile_external_projects}"
     "-DLLVM_EXTERNAL_TILEIRTOMLIR_SOURCE_DIR:PATH=${_tileir_to_mlir_dir}"
     # Explicit, so that a shared LLVM tree never keeps another checkout's path.
     "-DTILEIR_TO_MLIR_CUDA_TILE_SOURCE_DIR:PATH=${CUTILE_CUDA_TILE_SOURCE_DIR}"
@@ -114,10 +127,20 @@ set(_cutile_llvm_cmake_args
     -DMLIR_INCLUDE_TESTS:BOOL=OFF
     -DMLIR_ENABLE_EXECUTION_ENGINE:BOOL=ON
     -DMLIR_ENABLE_LEVELZERO_RUNNER:BOOL=OFF
-    -DMLIR_ENABLE_BINDINGS_PYTHON:BOOL=OFF
-    "-DPython3_EXECUTABLE:FILEPATH=${Python_EXECUTABLE}"
-    "-DPython_EXECUTABLE:FILEPATH=${Python_EXECUTABLE}"
-    "-Dnanobind_DIR:PATH=${nanobind_DIR}")
+    -DMLIR_ENABLE_BINDINGS_PYTHON:BOOL=OFF)
+if(CUTILE_BUILD_NATIVE_SDK)
+    list(APPEND _cutile_llvm_cmake_args
+        -DLLVM_ENABLE_LIBEDIT:BOOL=OFF
+        "-DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_INSTALL_PREFIX}"
+        -DCMAKE_INSTALL_LIBDIR:STRING=lib
+        "-DLLVM_DISTRIBUTION_COMPONENTS:STRING=llvm-libraries|mlir-libraries|lld-libraries|llvm-headers|mlir-headers|lld-headers|cmake-exports|mlir-cmake-exports|lld-cmake-exports|TileIRToMLIR")
+else()
+    list(APPEND _cutile_llvm_cmake_args
+        -DLLVM_DISTRIBUTION_COMPONENTS:STRING=
+        "-DPython3_EXECUTABLE:FILEPATH=${Python_EXECUTABLE}"
+        "-DPython_EXECUTABLE:FILEPATH=${Python_EXECUTABLE}"
+        "-Dnanobind_DIR:PATH=${nanobind_DIR}")
+endif()
 list(APPEND _cutile_llvm_cmake_args ${_cutile_backend_cmake_args})
 
 set(_cutile_llvm_build_script "${CMAKE_BINARY_DIR}/tileir-toolchain/BuildLLVM.cmake")
@@ -141,7 +164,7 @@ ExternalProject_Add(cutile_llvm
     USES_TERMINAL_BUILD TRUE)
 
 ExternalProject_Add_StepDependencies(cutile_llvm download
-    "${_required_llvm_revisions_file}")
+    "${_required_llvm_revisions_file}" "${_cutile_llvm_patch}")
 
 if(_cutile_llvm_override)
     message(STATUS "LLVM revision override: ${_cutile_llvm_override}")
@@ -149,10 +172,15 @@ else()
     message(STATUS "LLVM revision: ${_tileir_required_llvm_revision}")
 endif()
 message(STATUS "LLVM source: ${CUTILE_LLVM_SOURCE_DIR}")
-message(STATUS "Native cuTile compiler: ${CUTILE_COMPILER_PATH}")
+if(CUTILE_BUILD_NATIVE_SDK)
+    message(STATUS "Native SDK: ${CMAKE_INSTALL_PREFIX}")
+else()
+    message(STATUS "Native cuTile compiler: ${CUTILE_COMPILER_PATH}")
+endif()
 
 unset(_cutile_checkout_command)
 unset(_cutile_checkout_script)
+unset(_cutile_llvm_patch)
 unset(_required_llvm_revisions_file)
 unset(_cutile_llvm_override)
 unset(_tileir_required_llvm_revision)

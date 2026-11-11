@@ -4,10 +4,10 @@
 
 set(TILEIR_TO_MLIR_REPOSITORY "https://github.com/libxsmm/tileir-to-mlir"
     CACHE STRING "TileIRToMLIR repo URL")
-set(TILEIR_TO_MLIR_REVISION "ba6c9e50274522089b7ad99b3e8a571480481330"
+set(TILEIR_TO_MLIR_REVISION "7eeb1655cb4af986cc5aa53ca35ff87e7770d005"
     CACHE STRING "TileIRToMLIR revision")
 set(TILEIR_TO_MLIR_REVISION_SHA256
-    "f39644ec0eb4d98db8de6b8bcf51f82d67ea80081080e6c397695a20369eb0d4"
+    "c3946e02afeb443d4961dd81739f7d3fd3b94383871490df6f2cb2153b513c00"
     CACHE STRING "Expected SHA256 of the pinned TileIRToMLIR archive")
 
 set(CUDA_TILE_REPOSITORY "https://github.com/NVIDIA/cuda-tile"
