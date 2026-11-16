@@ -2,7 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-target_sources(_compiler PRIVATE cpu/compiler_cpu.cpp cpu/ApproximateMath.cpp)
+target_sources(_compiler PRIVATE
+    cpu/compiler_cpu.cpp
+    cpu/ApproximateMath.cpp
+    cpu/PrepareCPUVectors.cpp)
 if(CUTILE_NATIVE_SDK_DIR)
     target_include_directories(_compiler SYSTEM PRIVATE ${LLD_INCLUDE_DIRS})
 else()
@@ -19,6 +22,8 @@ llvm_map_components_to_libnames(_llvm_libs nativecodegen passes)
 target_link_libraries(_compiler PRIVATE ${_llvm_libs})
 
 if(NOT LLVM_ENABLE_RTTI)
-    set_source_files_properties(cpu/ApproximateMath.cpp
+    set_source_files_properties(
+        cpu/ApproximateMath.cpp
+        cpu/PrepareCPUVectors.cpp
         PROPERTIES COMPILE_OPTIONS "-fno-rtti")
 endif()

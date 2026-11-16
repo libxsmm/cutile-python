@@ -7,6 +7,7 @@
 #include "mlir/compiler.h"
 
 #include "ApproximateMath.h"
+#include "PrepareCPUVectors.h"
 #include "amx.h"
 #include "lld/Common/Driver.h"
 #include "mlir/Conversion/Passes.h"

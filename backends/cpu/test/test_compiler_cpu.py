@@ -97,6 +97,54 @@ def test_builtin_cpu_pipeline_rejects_unknown_entry_point(native):
         native.lower_cpu_mlir(b"module {}", "unknown")
 
 
+# The leading loop moves later top-level ops out of the LLVM entry block.
+_AMX_MATMUL_AFTER_LOOP = b"""
+#lhs = affine_map<(m, n, k) -> (m, k)>
+#rhs = affine_map<(m, n, k) -> (k, n)>
+#acc = affine_map<(m, n, k) -> (m, n)>
+module {
+  func.func private @declaration()
+  func.func @matmul(%a: memref<32x64xbf16>, %b: memref<64x32xbf16>,
+                    %c: memref<32x32xbf16>) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c32 = arith.constant 32 : index
+    %c64 = arith.constant 64 : index
+    %pad = arith.constant 0.0 : bf16
+    %zero = arith.constant dense<0.0> : vector<32x32xf32>
+    scf.for %i = %c0 to %c32 step %c1 {
+      memref.store %pad, %c[%c0, %i] : memref<32x32xbf16>
+    }
+    %sum = scf.for %k = %c0 to %c64 step %c32
+        iter_args(%acc = %zero) -> (vector<32x32xf32>) {
+      %x = vector.transfer_read %a[%c0, %k], %pad {in_bounds = [true, true]}
+          : memref<32x64xbf16>, vector<32x32xbf16>
+      %y = vector.transfer_read %b[%k, %c0], %pad {in_bounds = [true, true]}
+          : memref<64x32xbf16>, vector<32x32xbf16>
+      %product = vector.contract {indexing_maps = [#lhs, #rhs, #acc],
+          iterator_types = ["parallel", "parallel", "reduction"],
+          kind = #vector.kind<add>} %x, %y, %acc
+          : vector<32x32xbf16>, vector<32x32xbf16> into vector<32x32xf32>
+      scf.yield %product : vector<32x32xf32>
+    }
+    %result = arith.truncf %sum : vector<32x32xf32> to vector<32x32xbf16>
+    vector.transfer_write %result, %c[%c0, %c0] {in_bounds = [true, true]}
+        : vector<32x32xbf16>, memref<32x32xbf16>
+    return
+  }
+}
+"""
+
+
+def test_amx_pipeline_moves_stack_buffers_to_entry_block(native):
+    llvm_ir = native.lower_cpu_mlir(_AMX_MATMUL_AFTER_LOOP, "__transform_nano_amx").decode()
+    function = llvm_ir[llvm_ir.index("@matmul("):]
+    entry, _, rest = function[:function.index("\n}\n")].partition("\n\n")
+    allocas = [line for line in entry.splitlines() if "= alloca " in line]
+    assert allocas and all("align 64" in line for line in allocas)
+    assert "= alloca " not in rest
+
+
 @ct.kernel
 def _divide(x, y, out):
     a = ct.load(x, index=(0,), shape=(1,))
